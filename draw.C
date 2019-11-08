@@ -1,3 +1,6 @@
+#include "ROOT/RDataFrame.hxx"
+#include "ROOT/RVec.hxx"
+
 #include "TCanvas.h"
 #include "TFile.h"
 #include "TH1D.h"
@@ -10,15 +13,35 @@
 
 #include <unistd.h>
 
-void DrawRdf(TTree *tree) {
-   //ROOT::RDataFrame frame("clas12", "/data/hipo/ai_dst_005038.hipo.optimized.root");
-   //auto f1 = frame.Define("obs", "sqrt(px*px + py*py + pz*pz)");
-   //auto h = f1.Histo1D({"", "", 120, 0., 10.}, "obs");
-   //*h;
+enum How {
+   kOptimized,
+   kTreeDraw,
+   kRdf,
+   kRdfLambda,
+};
+
+
+void DrawRdf(const char *inputPath)
+{
+   ROOT::RDataFrame frame("clas12", inputPath);
+   auto f1 = frame.Define("obs", "sqrt(px*px+py*py+pz*pz)");
+   auto h = f1.Histo1D({"", "", 120, 0., 10.}, "obs");
+   *h;
 }
 
 
-void DrawTree(TTree *tree) {
+void DrawRdfLambda(const char *inputPath)
+{
+   ROOT::RDataFrame frame("clas12", inputPath);
+   auto f1 = frame.Define("obs", [](ROOT::RVec<float> px, ROOT::RVec<float> py, ROOT::RVec<float> pz) {
+      return sqrt(px*px + py*py + pz*pz); }, {"px", "py", "pz"});
+   auto h = f1.Histo1D({"", "", 120, 0., 10.}, "obs");
+   *h;
+}
+
+
+void DrawTree(TTree *tree)
+{
    tree->Draw("sqrt(px*px+py*py+pz*pz)>>h1(120,0.0,10.0)");
 }
 
@@ -59,16 +82,27 @@ void DrawOptimized(TTree *tree)
 }
 
 
-void draw(const char *pathInput, bool useTreeDraw)
+void draw(const char *pathInput, How how)
 {
    auto file = TFile::Open(pathInput);
    auto tree = file->Get<TTree>("clas12");
 
    auto tsStart = std::chrono::steady_clock::now();
-   if (useTreeDraw) {
+   switch (how) {
+   case kTreeDraw:
       DrawTree(tree);
-   } else {
+      break;
+   case kOptimized:
       DrawOptimized(tree);
+      break;
+   case kRdf:
+      DrawRdf(pathInput);
+      break;
+   case kRdfLambda:
+      DrawRdfLambda(pathInput);
+      break;
+   default:
+      assert(false);
    }
    auto tsStop = std::chrono::steady_clock::now();
    auto runtime = std::chrono::duration_cast<std::chrono::microseconds>(tsStop - tsStart).count();
@@ -77,17 +111,17 @@ void draw(const char *pathInput, bool useTreeDraw)
 
 
 void Usage(const std::string &progname) {
-   std::cout << progname << " -i <input> [-t(tree draw)]" << std::endl;
+   std::cout << progname << " -i <input> [-t(tree draw)] [-r(df)]" << std::endl;
 }
 
 
 int main(int argc, char **argv)
 {
    std::string pathInput;
-   bool useTreeDraw = false;
+   How how = kOptimized;
 
    int c;
-   while ((c = getopt(argc, argv, "hvi:t")) != -1) {
+   while ((c = getopt(argc, argv, "hvi:trR")) != -1) {
       switch (c) {
       case 'h':
       case 'v':
@@ -97,7 +131,13 @@ int main(int argc, char **argv)
          pathInput = optarg;
          break;
       case 't':
-         useTreeDraw = true;
+         how = kTreeDraw;
+         break;
+      case 'r':
+         how = kRdf;
+         break;
+      case 'R':
+         how = kRdfLambda;
          break;
       default:
          fprintf(stderr, "Unknown option: -%c\n", c);
@@ -111,5 +151,5 @@ int main(int argc, char **argv)
       return 1;
    }
 
-   draw(pathInput.c_str(), useTreeDraw);
+   draw(pathInput.c_str(), how);
 }
